@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 import Grounding
 
-open Grounding.Rtl
+open Grounding Grounding.Rtl
 
 /-- 128-step nonlinear hash chain; a shared DAG keeps elaboration linear. -/
 def hash128Source : String := r#"

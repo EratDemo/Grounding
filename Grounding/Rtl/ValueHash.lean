@@ -2,22 +2,6 @@
 -- SPDX-License-Identifier: Apache-2.0
 /-
 Grounding RTL value hashing and Boolean equality.
-
-`beqStruct` is structural equality on `Value` in which every recursive
-comparison first tries pointer equality via `withPtrEq`.  When the netlist is a
-shared expression DAG this keeps the comparison linear (shared sub-terms are
-pointer-equal), which is what makes the read-set memo usable.
-
-`withPtrEq` demands that the slow path agrees with the fast path on equal
-arguments, i.e. reflexivity of the recursive comparison.  To discharge that
-inside the definition, `beqStruct a` returns the comparison function `Value w →
-Bool` *bundled with a proof that it accepts `a`*.  Soundness is proven
-separately (`beqStruct_sound`), giving `LawfulBEq`.
-
-This is a separate module from `Netlist` on purpose: `Value` has a
-`@[computed_field] hash`, which is implemented via `implemented_by`. Defining a
-recursive `beqStruct` in the same module as that implementation trips Lean's
-`enableRealizationsForConst` check.  Keeping `BEq`/`Hashable` here avoids it.
 -/
 
 import Grounding.Rtl.Netlist

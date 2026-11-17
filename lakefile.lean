@@ -54,6 +54,11 @@ lean_lib Grounding where
   needs := #[`@/groundingNative]
   moreLinkObjs := #[`@/groundingNative]
 
+@[default_target]
+lean_lib Examples where
+  roots := #[`Examples.IbexMultiplier.Arith, `Examples.IbexMultiplier.Main,
+    `Examples.Hash128.Hash128]
+
 @[test_driver]
 lean_exe tests where
   root := `Tests

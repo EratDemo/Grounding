@@ -1,12 +1,7 @@
 -- SPDX-FileCopyrightText: Erat demo technologie, s.r.o.
 -- SPDX-License-Identifier: Apache-2.0
 /-
-Grounding RTL builder.
-
-The C++ side keeps the flat-net → signal-bit mapping. It realizes each
-`ir::Value` by calling `part_select` on the relevant signal and `concat` over
-the resulting one-bit values, then passes the resulting `BuiltValue` to an
-operation builder.
+Grounding RTL builder - methods called by the native language frontend
 -/
 
 import Grounding.Rtl.Netlist
@@ -19,8 +14,6 @@ structure BuiltValue where
   value : Value width
   assignable : Option (PLift (Value.CanBeAssignedTo value))
 
-/-- A concrete asynchronous load supplied to `addRegister`: trigger, active
-level, and the value loaded while the trigger is active. -/
 structure BuiltAsyncLoad where
   trigger : BuiltValue
   polarity : Bool
@@ -36,7 +29,7 @@ structure Builder where
 
 namespace Builder
 
-def constOf (width : Nat) (t : Trit) : Const width :=
+def constOf (width : Nat) (t : Trit) : TritVec width :=
   ⟨Vector.replicate width t⟩
 
 def zeroValue (width : Nat) : Value width :=
@@ -328,11 +321,6 @@ def builderAddAload2Register (b : Builder) (q d clk : BuiltValue) (clkPol : UInt
     Option Builder :=
   b.addRegister q d clk (clkPol != 0)
     #[⟨trig1, trig1Pol != 0, value1⟩, ⟨trig2, trig2Pol != 0, value2⟩]
-
-/-! These construct expression values without touching the builder. The C++
-side binds the result to the flat nets it allocated for the operation, so an
-intermediate operation does not become a `Signal` or an `Assignment`.
-Operation codes are the constructor indices of `Unop`/`Biop`/`Shiftop`. -/
 
 @[export grounding_builder_make_unop]
 def builderMakeUnop (op : Unop) (a : BuiltValue) : BuiltValue :=

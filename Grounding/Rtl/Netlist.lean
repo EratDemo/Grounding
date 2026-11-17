@@ -3,8 +3,7 @@
 /-
 Grounding RTL netlist structure.
 
-Core value/assignment/register/port types. The driver invariant lives in
-`Grounding.Rtl.WellFormed`; the FFI builder lives in `Grounding.Rtl.Builder`.
+Core value/assignment/register/port types.
 -/
 
 namespace Grounding.Rtl
@@ -17,7 +16,7 @@ inductive Trit where
   deriving Repr, DecidableEq, Inhabited
 
 /-- A constant of exactly `width` trits. -/
-structure Const (width : Nat) where
+structure TritVec (width : Nat) where
   bits : Vector Trit width
   deriving Repr, DecidableEq
 
@@ -46,14 +45,14 @@ end Trit
 
 instance : Hashable Trit := ⟨Trit.hash⟩
 
-namespace Const
+namespace TritVec
 
-def hash (c : Const width) : UInt64 :=
+def hash (c : TritVec width) : UInt64 :=
   c.bits.toList.foldl (fun h t => mixHash h (Trit.hash t)) 0
 
-end Const
+end TritVec
 
-instance : Hashable (Const width) := ⟨Const.hash⟩
+instance : Hashable (TritVec width) := ⟨TritVec.hash⟩
 
 namespace Signal
 
@@ -65,9 +64,7 @@ end Signal
 instance : Hashable (Signal width) := ⟨Signal.hash⟩
 
 /--
-A value expression, indexed by its result width. Operations follow syn's set
-(buffer/andnot/ports/blackboxes removed), plus n-ary `concatNode` and
-`partSelect`.
+A value expression, indexed by its result width.
 
 Conventions:
 * `mux sel a b` is `sel ? a : b`.
@@ -76,7 +73,7 @@ Conventions:
   bits.
 -/
 inductive Value : Nat → Type where
-  | const {width : Nat} (c : Const width) : Value width
+  | const {width : Nat} (c : TritVec width) : Value width
   | signal {width : Nat} (s : Signal width) : Value width
 
   | not {width : Nat} (a : Value width) : Value width
@@ -129,7 +126,7 @@ with
   explicit argument, as required by `@[computed_field]` on indexed types. -/
   @[computed_field] hash : (width : Nat) → Value width → UInt64
     | width, .const c =>
-        mixHash 0 (mixHash (hashNat width) (Const.hash c))
+        mixHash 0 (mixHash (hashNat width) (TritVec.hash c))
     | width, .signal s =>
         mixHash 1 (mixHash (hashNat width) (Signal.hash s))
     | width, .not a =>
@@ -220,6 +217,48 @@ inductive CanBeAssignedTo : {width : Nat} → Value width → Prop where
 
 end Value
 
+/-! ### Concatenation from a list of parts
+
+Embedded designs build `concatNode`s with `concatList`: the parts are a list
+literal (MSB first), so the width equation reduces by `rfl` (no `Array.map`). -/
+
+theorem concatList_lt (ps : List (Σ w, Value w)) (i : Fin (ps.map (·.1)).toArray.size) :
+    i.1 < ps.length := by simpa using i.2
+
+theorem concatList_width (ps : List (Σ w, Value w)) (i : Fin (ps.map (·.1)).toArray.size) :
+    (ps[i.1]'(concatList_lt ps i)).1 = (ps.map (·.1)).toArray[i] := by simp
+
+/-- Part `i` of `concatList`, cast to the width recorded in the width array. -/
+def concatListPart (ps : List (Σ w, Value w)) (i : Fin (ps.map (·.1)).toArray.size) :
+    Value (ps.map (·.1)).toArray[i] :=
+  concatList_width ps i ▸ (ps[i.1]'(concatList_lt ps i)).2
+
+/-- Concatenate a list of parts (MSB first). -/
+def Value.concatList (w : Nat) (ps : List (Σ w, Value w))
+    (h : (ps.map (·.1)).toArray.foldl Nat.add 0 = w) : Value w :=
+  .concatNode w (ps.map (·.1)).toArray (concatListPart ps) h
+
+/-- Every part is assignable (a right-nested conjunction, built term by term). -/
+def AllAssignable : List (Σ w, Value w) → Prop
+  | [] => True
+  | p :: ps => p.2.CanBeAssignedTo ∧ AllAssignable ps
+
+theorem AllAssignable.get : ∀ {ps : List (Σ w, Value w)}, AllAssignable ps →
+    ∀ (i : Nat) (hi : i < ps.length), (ps[i]'hi).2.CanBeAssignedTo
+  | _ :: _, h, 0, _ => h.1
+  | _ :: _, h, i + 1, hi => AllAssignable.get h.2 i (by simpa using hi)
+
+theorem canBeAssignedTo_cast {w1 w2 : Nat} (h : w1 = w2) {v : Value w1}
+    (hv : Value.CanBeAssignedTo v) : Value.CanBeAssignedTo (h ▸ v) := by
+  cases h
+  exact hv
+
+theorem Value.concatList_assignable (w : Nat) (ps : List (Σ w, Value w))
+    (h : (ps.map (·.1)).toArray.foldl Nat.add 0 = w) (hps : AllAssignable ps) :
+    (Value.concatList w ps h).CanBeAssignedTo :=
+  .concat _ _ h fun i =>
+    canBeAssignedTo_cast (concatList_width ps i) (hps.get i.1 (concatList_lt ps i))
+
 /-- Signals read by a value. This is coarse: a `partSelect` reads its whole
 source, and a `concat` reads all of its parts. -/
 def Value.signals : {width : Nat} → Value width → List (Σ width, Signal width)
@@ -288,9 +327,7 @@ structure AsyncLoad (width : Nat) where
 
 /-- An edge-triggered register: on each `clk` edge of polarity `clkPolarity`
 (`true` = rising) `q` takes the value of `d`, unless an asynchronous load is
-active. A clock enable is folded into `d` (as `en ? d : q`). `aloads` are in
-priority order: the first load whose trigger is at its active level determines
-the output, so when set and reset are both active the earlier entry wins. -/
+active. -/
 structure Register (width : Nat) where
   q : Value width
   q_ok : Value.CanBeAssignedTo q
@@ -298,7 +335,7 @@ structure Register (width : Nat) where
   clk : Value 1
   clkPolarity : Bool := true
   aloads : List (AsyncLoad width) := []
-  init : Const width
+  init : TritVec width
 
 /-- A netlist is a signal table plus ports, assignments, and registers. -/
 structure Netlist where
@@ -306,5 +343,66 @@ structure Netlist where
   ports : List (Σ width, Port width)
   assignments : List Assignment
   registers : List (Σ width, Register width)
+
+namespace Value
+
+/-- All signals read by `v` occur in the netlist's signal table. -/
+inductive InNetlist (n : Netlist) : {width : Nat} → Value width → Prop where
+  | const {width : Nat} (c : TritVec width) : InNetlist n (.const c)
+  | signal {width : Nat} (s : Signal width) :
+      (⟨width, s⟩ : Σ width, Signal width) ∈ n.signals → InNetlist n (.signal s)
+  | not {width : Nat} {a : Value width} :
+      InNetlist n a → InNetlist n (.not a)
+  | and {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.and a b)
+  | or {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.or a b)
+  | xor {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.xor a b)
+  | mux {width : Nat} {sel : Value 1} {a b : Value width} :
+      InNetlist n sel → InNetlist n a → InNetlist n b → InNetlist n (.mux sel a b)
+  | adc {width : Nat} {a b : Value width} {cin : Value 1} :
+      InNetlist n a → InNetlist n b → InNetlist n cin → InNetlist n (.adc a b cin)
+  | eq {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.eq a b)
+  | ult {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.ult a b)
+  | slt {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.slt a b)
+  | eqx {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.eqx a b)
+  | shl {width amt : Nat} {stride : Nat} {a : Value width} {amount : Value amt} :
+      InNetlist n a → InNetlist n amount → InNetlist n (.shl stride amt a amount)
+  | ushr {width amt : Nat} {stride : Nat} {a : Value width} {amount : Value amt} :
+      InNetlist n a → InNetlist n amount → InNetlist n (.ushr stride amt a amount)
+  | sshr {width amt : Nat} {stride : Nat} {a : Value width} {amount : Value amt} :
+      InNetlist n a → InNetlist n amount → InNetlist n (.sshr stride amt a amount)
+  | xshr {width amt : Nat} {stride : Nat} {a : Value width} {amount : Value amt} :
+      InNetlist n a → InNetlist n amount → InNetlist n (.xshr stride amt a amount)
+  | replicate {width : Nat} {a : Value 1} :
+      InNetlist n a → InNetlist n (.replicate width a)
+  | mul {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.mul a b)
+  | udiv {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.udiv a b)
+  | umod {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.umod a b)
+  | sdivTrunc {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.sdivTrunc a b)
+  | sdivFloor {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.sdivFloor a b)
+  | smodTrunc {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.smodTrunc a b)
+  | smodFloor {width : Nat} {a b : Value width} :
+      InNetlist n a → InNetlist n b → InNetlist n (.smodFloor a b)
+  | concatNode {width : Nat} {ws : Array Nat}
+      {parts : (i : Fin ws.size) → Value ws[i]}
+      {h : ws.foldl Nat.add 0 = width} :
+      (∀ i, InNetlist n (parts i)) → InNetlist n (.concatNode width ws parts h)
+  | partSelect {width srcWidth : Nat} {src : Value srcWidth} {offset : Nat}
+      {h : offset + width ≤ srcWidth} :
+      InNetlist n src → InNetlist n (.partSelect srcWidth src offset h)
+
+end Value
 
 end Grounding.Rtl
