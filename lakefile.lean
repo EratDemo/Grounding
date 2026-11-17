@@ -53,3 +53,7 @@ lean_lib Grounding where
   roots := #[`Grounding]
   needs := #[`@/groundingNative]
   moreLinkObjs := #[`@/groundingNative]
+
+@[test_driver]
+lean_exe tests where
+  root := `Tests
