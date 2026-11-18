@@ -57,7 +57,7 @@ lean_lib Grounding where
 @[default_target]
 lean_lib Examples where
   roots := #[`Examples.IbexMultiplier.Arith, `Examples.IbexMultiplier.Main,
-    `Examples.Hash128.Hash128]
+    `Examples.Hash128.Hash128, `Examples.CrossFile.Design, `Examples.CrossFile.Use]
 
 @[test_driver]
 lean_exe tests where
