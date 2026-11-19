@@ -20,6 +20,9 @@ The design name is optional: it defaults to the `foo` of a hypothesis
 file the native handle is recovered by re-running the frontend with the recorded
 arguments, and the result must match the recorded fingerprint.
 
+`sv_eval% V "expr"` (or `sv_eval% V foo "expr"`) is shorthand for
+`V.eval (sv_expr% "expr")`.
+
 Nothing native is trusted in proofs: the frontend's output is frozen into
 ordinary definitions, and all facts are checked by the kernel.
 -/
@@ -310,5 +313,13 @@ def resolveValue (tac : String) (decl : Name) (src : String) : TermElabM Expr :=
   unless (findDesign? (← getEnv) decl).isSome do
     throwError "sv_expr%: `{decl}` is not an sv_design"
   resolveValue "sv_expr%" decl (stx[2].isStrLit?.getD "")
+
+/-- `sv_eval% V "expr"` (or `sv_eval% V foo "expr"`): shorthand for
+`V.eval (sv_expr% "expr")`. -/
+syntax (name := svEval) "sv_eval% " term:max (ident)? str : term
+
+macro_rules
+  | `(sv_eval% $v $[$n]? $s) =>
+    `(Grounding.Rtl.Valuation.eval $v (sv_expr% $[$n]? $s))
 
 end Grounding.SvDesign

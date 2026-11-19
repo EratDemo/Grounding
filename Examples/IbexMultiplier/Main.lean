@@ -19,24 +19,24 @@ set_option maxRecDepth 20000
 
 /-- The ALU path relation holds. -/
 def AluPath (V : Valuation) : Prop :=
-  V.eval (sv_expr% "(alu_adder_ext_i == ({1'b0, alu_operand_a_o} + {1'b0, alu_operand_b_o})) && (alu_adder_i == alu_adder_ext_i[32:1]) && (equal_to_zero_i == (alu_adder_i == 0))") = TritVec.ofBV 1#1
+  sv_eval% V "(alu_adder_ext_i == ({1'b0, alu_operand_a_o} + {1'b0, alu_operand_b_o})) && (alu_adder_i == alu_adder_ext_i[32:1]) && (equal_to_zero_i == (alu_adder_i == 0))" = TritVec.ofBV 1#1
 
 /-- The external `imd_val` constraint between consecutive states. -/
 private def ValidHistoryExt (V V' : Valuation) : Prop :=
-  let edge := (V.eval (sv_expr% "clk_i")).bit0 == Trit.zero &&
-              (V'.eval (sv_expr% "clk_i")).bit0 == Trit.one
+  let edge := (sv_eval% V "clk_i").bit0 == Trit.zero &&
+              (sv_eval% V' "clk_i").bit0 == Trit.one
   let q0 := sv_expr% "imd_val_q_i[0]"
   let q1 := sv_expr% "imd_val_q_i[1]"
   (V'.eval q0 =
-    bif edge then V.eval (sv_expr% "((mult_sel_i | div_sel_i) & imd_val_we_o[0]) ? imd_val_d_o[0] : imd_val_q_i[0]")
+    bif edge then sv_eval% V "((mult_sel_i | div_sel_i) & imd_val_we_o[0]) ? imd_val_d_o[0] : imd_val_q_i[0]"
     else V.eval q0) ∧
   (V'.eval q1 =
-    bif edge then V.eval (sv_expr% "((mult_sel_i | div_sel_i) & imd_val_we_o[1]) ? imd_val_d_o[1] : imd_val_q_i[1]")
+    bif edge then sv_eval% V "((mult_sel_i | div_sel_i) & imd_val_we_o[1]) ? imd_val_d_o[1] : imd_val_q_i[1]"
     else V'.eval q1)
 
 /-- The clock and the control/operand inputs are X-free. -/
 def CtrlInputsDefined (V : Valuation) : Prop :=
-  (V.eval (sv_expr% "^{data_ind_timing_i, div_sel_i, clk_i, mult_sel_i, operator_i, op_b_i, signed_mode_i, mult_en_i, div_en_i, multdiv_ready_id_i, equal_to_zero_i, alu_adder_i}")).bit0 ≠ Trit.x
+  (sv_eval% V "^{data_ind_timing_i, div_sel_i, clk_i, mult_sel_i, operator_i, op_b_i, signed_mode_i, mult_en_i, div_en_i, multdiv_ready_id_i, equal_to_zero_i, alu_adder_i}").bit0 ≠ Trit.x
 
 /-- A valid history starts with an active (low) reset, has no X
 on `data_ind_timing_i`, `div_sel_i`, `clk_i`, or the inputs feeding
@@ -46,8 +46,8 @@ and every valuation is consistent with the netlist. -/
 def ValidHistory (Vs : List Valuation) : Prop :=
   (match Vs with
     | [] => False
-    | V₀ :: _ => (V₀.eval (sv_expr% "rst_ni")).bit0 = Trit.zero) ∧
-  (∀ V ∈ Vs.tail, V.eval (sv_expr% "rst_ni") = TritVec.ofBV 1#1) ∧
+    | V₀ :: _ => (sv_eval% V₀ "rst_ni").bit0 = Trit.zero) ∧
+  (∀ V ∈ Vs.tail, sv_eval% V "rst_ni" = TritVec.ofBV 1#1) ∧
   (∀ V ∈ Vs, CtrlInputsDefined V) ∧
   (∀ V ∈ Vs, V.isConsistent IbexMultidivSlow) ∧
   (∀ p ∈ Vs.zip Vs.tail,
@@ -57,13 +57,13 @@ def ValidHistory (Vs : List Valuation) : Prop :=
 multiplier enable/select, no divider enable, and the operands with their signed
 mode (the ID stage keeps them stable while the instruction is in flight). -/
 def MulHeld (hi : Bool) (sm : BitVec 2) (a b : BitVec 32) (V : Valuation) : Prop :=
-  V.eval (sv_expr% "operator_i") = TritVec.ofBV (if hi then 1#2 else 0#2) ∧
-  V.eval (sv_expr% "mult_en_i") = TritVec.ofBV 1#1 ∧
-  V.eval (sv_expr% "mult_sel_i") = TritVec.ofBV 1#1 ∧
-  V.eval (sv_expr% "div_en_i") = TritVec.ofBV 0#1 ∧
-  V.eval (sv_expr% "signed_mode_i") = TritVec.ofBV sm ∧
-  V.eval (sv_expr% "op_a_i") = TritVec.ofBV a ∧
-  V.eval (sv_expr% "op_b_i") = TritVec.ofBV b
+  sv_eval% V "operator_i" = TritVec.ofBV (if hi then 1#2 else 0#2) ∧
+  sv_eval% V "mult_en_i" = TritVec.ofBV 1#1 ∧
+  sv_eval% V "mult_sel_i" = TritVec.ofBV 1#1 ∧
+  sv_eval% V "div_en_i" = TritVec.ofBV 0#1 ∧
+  sv_eval% V "signed_mode_i" = TritVec.ofBV sm ∧
+  sv_eval% V "op_a_i" = TritVec.ofBV a ∧
+  sv_eval% V "op_b_i" = TritVec.ofBV b
 
 /-- **Multiplier contract.** In a valid history, if a state `V₀` is idle, then
 the first state `V` (from `V₀` on) where `valid_o` is high outputs the product,
@@ -74,14 +74,14 @@ def MulContract : Prop :=
     ValidHistory Vs →
     ∀ (pre : List Valuation) (V₀ : Valuation) (post : List Valuation),
       Vs = pre ++ List.cons (α := Valuation) V₀ post →
-      V₀.eval (sv_expr% "md_state_q") = TritVec.ofBV 0#3 →
+      sv_eval% V₀ "md_state_q" = TritVec.ofBV 0#3 →
       ∀ V, (List.cons (α := Valuation) V₀ post).find?
-          (fun V => decide (V.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1)) = some V →
+          (fun V => decide (sv_eval% V "valid_o" = TritVec.ofBV 1#1)) = some V →
         (∀ W ∈ (List.cons (α := Valuation) V₀ post).takeWhile
-            (fun (W : Valuation) => !decide (W.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1)),
+            (fun (W : Valuation) => !decide (sv_eval% W "valid_o" = TritVec.ofBV 1#1)),
           MulHeld hi sm a b W ∧ AluPath W) →
         (MulHeld hi sm a b V ∧ AluPath V) →
-        V.eval (sv_expr% "multdiv_result_o") = TritVec.ofBV (mulSpec hi sm[0] sm[1] a b)
+        sv_eval% V "multdiv_result_o" = TritVec.ofBV (mulSpec hi sm[0] sm[1] a b)
 
 /-! `extendVal`/`mulSpec` are defined in `Examples.IbexMultiplier.Arith`. -/
 
@@ -95,12 +95,12 @@ example : mulSpec true true false (-1#32) 2#32 = 0xFFFFFFFF#32 := by decide
 
 /-- The three registers whose values feed `md_state_d` are X-free. -/
 def RegistersDefined (V : Valuation) : Prop :=
-  (V.eval (sv_expr% "^{md_state_q, multdiv_count_q, op_b_shift_q}")).bit0 ≠ Trit.x
+  (sv_eval% V "^{md_state_q, multdiv_count_q, op_b_shift_q}").bit0 ≠ Trit.x
 
 set_option maxHeartbeats 8000000 in
 theorem registers_defined_reset {V : Valuation}
     (hc : V.isConsistent IbexMultidivSlow)
-    (hrst : (V.eval (sv_expr% "rst_ni")).bit0 = Trit.zero) :
+    (hrst : (sv_eval% V "rst_ni").bit0 = Trit.zero) :
     RegistersDefined V := by
   unfold RegistersDefined
   bv_dual_rail
@@ -115,7 +115,7 @@ theorem step_defined {V V' : Valuation}
     (hd : RegistersDefined V)
     (hx : CtrlInputsDefined V)
     (hx' : CtrlInputsDefined V')
-    (hrst' : V'.eval (sv_expr% "rst_ni") = TritVec.ofBV 1#1) :
+    (hrst' : sv_eval% V' "rst_ni" = TritVec.ofBV 1#1) :
     RegistersDefined V' := by
   unfold RegistersDefined CtrlInputsDefined at *
   bv_dual_rail
@@ -125,7 +125,7 @@ private theorem defined_tail (V : Valuation) (rest : List Valuation)
     (hd : RegistersDefined V)
     (hx : ∀ W ∈ (List.cons (α := Valuation) V rest), CtrlInputsDefined W)
     (hc : ∀ W ∈ (List.cons (α := Valuation) V rest), W.isConsistent IbexMultidivSlow)
-    (hr : ∀ W ∈ rest, W.eval (sv_expr% "rst_ni") = TritVec.ofBV 1#1)
+    (hr : ∀ W ∈ rest, sv_eval% W "rst_ni" = TritVec.ofBV 1#1)
     (hz : ∀ p ∈ ((List.cons (α := Valuation) V rest)).zip rest,
       IbexMultidivSlow.Transition p.1 p.2 ∧ ValidHistoryExt p.1 p.2) :
     ∀ W ∈ (List.cons (α := Valuation) V rest), RegistersDefined W := by
@@ -169,37 +169,37 @@ structure EdgeStep (V V' : Valuation) : Prop where
   hc' : V'.isConsistent IbexMultidivSlow
   ht : IbexMultidivSlow.Transition V V'
   he : ValidHistoryExt V V'
-  hclk : V.eval (sv_expr% "clk_i") = TritVec.ofBV 0#1
-  hclk' : V'.eval (sv_expr% "clk_i") = TritVec.ofBV 1#1
-  hrst' : V'.eval (sv_expr% "rst_ni") = TritVec.ofBV 1#1
+  hclk : sv_eval% V "clk_i" = TritVec.ofBV 0#1
+  hclk' : sv_eval% V' "clk_i" = TritVec.ofBV 1#1
+  hrst' : sv_eval% V' "rst_ni" = TritVec.ofBV 1#1
 
 /-- The multiplier is selected and enabled with operator `op`; the control
 inputs are concrete bits. -/
 structure MulCtrl (V : Valuation) (op : BitVec 2) (me de dit ds rdy : BitVec 1) : Prop where
-  hme : V.eval (sv_expr% "mult_en_i") = TritVec.ofBV me
-  hde : V.eval (sv_expr% "div_en_i") = TritVec.ofBV de
+  hme : sv_eval% V "mult_en_i" = TritVec.ofBV me
+  hde : sv_eval% V "div_en_i" = TritVec.ofBV de
   hen : me ||| de = 1#1
-  hms : V.eval (sv_expr% "mult_sel_i") = TritVec.ofBV 1#1
-  hop : V.eval (sv_expr% "operator_i") = TritVec.ofBV op
-  hdit : V.eval (sv_expr% "data_ind_timing_i") = TritVec.ofBV dit
-  hds : V.eval (sv_expr% "div_sel_i") = TritVec.ofBV ds
-  hrdy : V.eval (sv_expr% "multdiv_ready_id_i") = TritVec.ofBV rdy
+  hms : sv_eval% V "mult_sel_i" = TritVec.ofBV 1#1
+  hop : sv_eval% V "operator_i" = TritVec.ofBV op
+  hdit : sv_eval% V "data_ind_timing_i" = TritVec.ofBV dit
+  hds : sv_eval% V "div_sel_i" = TritVec.ofBV ds
+  hrdy : sv_eval% V "multdiv_ready_id_i" = TritVec.ofBV rdy
 
 /-- The operands and signed mode offered to the multiplier. -/
 structure MulOperands (V : Valuation) (sm : BitVec 2) (a b : BitVec 32) : Prop where
-  hsm : V.eval (sv_expr% "signed_mode_i") = TritVec.ofBV sm
-  hoa : V.eval (sv_expr% "op_a_i") = TritVec.ofBV a
-  hob : V.eval (sv_expr% "op_b_i") = TritVec.ofBV b
+  hsm : sv_eval% V "signed_mode_i" = TritVec.ofBV sm
+  hoa : sv_eval% V "op_a_i" = TritVec.ofBV a
+  hob : sv_eval% V "op_b_i" = TritVec.ofBV b
 
 /-- The datapath registers of the multiplier. -/
 def MulRegs (V : Valuation) (pa pb acc : BitVec 33) : Prop :=
-  V.eval (sv_expr% "op_a_shift_q") = TritVec.ofBV pa ∧
-  V.eval (sv_expr% "op_b_shift_q") = TritVec.ofBV pb ∧
-  V.eval (sv_expr% "accum_window_q") = TritVec.ofBV acc
+  sv_eval% V "op_a_shift_q" = TritVec.ofBV pa ∧
+  sv_eval% V "op_b_shift_q" = TritVec.ofBV pb ∧
+  sv_eval% V "accum_window_q" = TritVec.ofBV acc
 
 /-- The FSM state register holds `s`. -/
 def InState (V : Valuation) (s : BitVec 3) : Prop :=
-  V.eval (sv_expr% "md_state_q") = TritVec.ofBV s
+  sv_eval% V "md_state_q" = TritVec.ofBV s
 
 set_option hygiene false in
 /-- Destructure an `EdgeStep` and reduce the external path for the rising
@@ -220,12 +220,12 @@ theorem step_idle_mull {V V' : Valuation} {a b : BitVec 32} {sm : BitVec 2}
     {me de dit ds rdy : BitVec 1}
     (hE : EdgeStep V V') (hS : InState V 0#3)
     (hC : MulCtrl V 0#2 me de dit ds rdy) (hO : MulOperands V sm a b) :
-    V'.eval (sv_expr% "md_state_q") = TritVec.ofBV
+    sv_eval% V' "md_state_q" = TritVec.ofBV
       (bif (dit == 0#1 && (ext33 (sm[1]) b >>> 1) == 0#33) then 4#3 else 3#3) ∧
-    V'.eval (sv_expr% "multdiv_count_q") = TritVec.ofBV 31#5 ∧
-    V'.eval (sv_expr% "op_a_shift_q") = TritVec.ofBV (ext33 (sm[0]) a <<< 1) ∧
-    V'.eval (sv_expr% "op_b_shift_q") = TritVec.ofBV (ext33 (sm[1]) b >>> 1) ∧
-    V'.eval (sv_expr% "accum_window_q") = TritVec.ofBV (bwpp (ext33 (sm[0]) a) (b.getLsbD 0)) := by
+    sv_eval% V' "multdiv_count_q" = TritVec.ofBV 31#5 ∧
+    sv_eval% V' "op_a_shift_q" = TritVec.ofBV (ext33 (sm[0]) a <<< 1) ∧
+    sv_eval% V' "op_b_shift_q" = TritVec.ofBV (ext33 (sm[1]) b >>> 1) ∧
+    sv_eval% V' "accum_window_q" = TritVec.ofBV (bwpp (ext33 (sm[0]) a) (b.getLsbD 0)) := by
   unpack_edge hE
   obtain ⟨hme, hde, hen, hms, hop, hdit, hds, hrdy⟩ := hC
   obtain ⟨hsm, hoa, hob⟩ := hO
@@ -240,11 +240,11 @@ theorem step_idle_mulh {V V' : Valuation} {a b : BitVec 32} {sm : BitVec 2}
     {me de dit ds rdy : BitVec 1}
     (hE : EdgeStep V V') (hS : InState V 0#3)
     (hC : MulCtrl V 1#2 me de dit ds rdy) (hO : MulOperands V sm a b) :
-    V'.eval (sv_expr% "md_state_q") = TritVec.ofBV 3#3 ∧
-    V'.eval (sv_expr% "multdiv_count_q") = TritVec.ofBV 31#5 ∧
-    V'.eval (sv_expr% "op_a_shift_q") = TritVec.ofBV (ext33 (sm[0]) a) ∧
-    V'.eval (sv_expr% "op_b_shift_q") = TritVec.ofBV (ext33 (sm[1]) b >>> 1) ∧
-    V'.eval (sv_expr% "accum_window_q") = TritVec.ofBV
+    sv_eval% V' "md_state_q" = TritVec.ofBV 3#3 ∧
+    sv_eval% V' "multdiv_count_q" = TritVec.ofBV 31#5 ∧
+    sv_eval% V' "op_a_shift_q" = TritVec.ofBV (ext33 (sm[0]) a) ∧
+    sv_eval% V' "op_b_shift_q" = TritVec.ofBV (ext33 (sm[1]) b >>> 1) ∧
+    sv_eval% V' "accum_window_q" = TritVec.ofBV
       ((bwpp (ext33 (sm[0]) a) (b.getLsbD 0) >>> 1) ||| 0x100000000#33) := by
   unpack_edge hE
   obtain ⟨hme, hde, hen, hms, hop, hdit, hds, hrdy⟩ := hC
@@ -260,13 +260,13 @@ theorem step_comp_mull {V V' : Valuation} {pa pb acc : BitVec 33} {c : BitVec 5}
     {me de dit ds rdy : BitVec 1}
     (hE : EdgeStep V V') (hA : AluPath V) (hS : InState V 3#3)
     (hC : MulCtrl V 0#2 me de dit ds rdy) (hR : MulRegs V pa pb acc)
-    (hcnt : V.eval (sv_expr% "multdiv_count_q") = TritVec.ofBV c) :
-    V'.eval (sv_expr% "md_state_q") = TritVec.ofBV
+    (hcnt : sv_eval% V "multdiv_count_q" = TritVec.ofBV c) :
+    sv_eval% V' "md_state_q" = TritVec.ofBV
       (bif ((dit == 0#1 && (pb >>> 1) == 0#33) || c == 1#5) then 4#3 else 3#3) ∧
-    V'.eval (sv_expr% "multdiv_count_q") = TritVec.ofBV (c - 1#5) ∧
-    V'.eval (sv_expr% "op_a_shift_q") = TritVec.ofBV (pa <<< 1) ∧
-    V'.eval (sv_expr% "op_b_shift_q") = TritVec.ofBV (pb >>> 1) ∧
-    V'.eval (sv_expr% "accum_window_q") = TritVec.ofBV (acc + bwpp pa (pb.getLsbD 0)) := by
+    sv_eval% V' "multdiv_count_q" = TritVec.ofBV (c - 1#5) ∧
+    sv_eval% V' "op_a_shift_q" = TritVec.ofBV (pa <<< 1) ∧
+    sv_eval% V' "op_b_shift_q" = TritVec.ofBV (pb >>> 1) ∧
+    sv_eval% V' "accum_window_q" = TritVec.ofBV (acc + bwpp pa (pb.getLsbD 0)) := by
   unpack_edge hE
   unfold AluPath at hA
   obtain ⟨hme, hde, hen, hms, hop, hdit, hds, hrdy⟩ := hC
@@ -282,12 +282,12 @@ theorem step_comp_mulh {V V' : Valuation} {pa pb acc : BitVec 33} {c : BitVec 5}
     {me de dit ds rdy : BitVec 1}
     (hE : EdgeStep V V') (hA : AluPath V) (hS : InState V 3#3)
     (hC : MulCtrl V 1#2 me de dit ds rdy) (hR : MulRegs V pa pb acc)
-    (hcnt : V.eval (sv_expr% "multdiv_count_q") = TritVec.ofBV c) :
-    V'.eval (sv_expr% "md_state_q") = TritVec.ofBV (bif c == 1#5 then 4#3 else 3#3) ∧
-    V'.eval (sv_expr% "multdiv_count_q") = TritVec.ofBV (c - 1#5) ∧
-    V'.eval (sv_expr% "op_a_shift_q") = TritVec.ofBV pa ∧
-    V'.eval (sv_expr% "op_b_shift_q") = TritVec.ofBV (pb >>> 1) ∧
-    V'.eval (sv_expr% "accum_window_q") = TritVec.ofBV ((add34 acc (bwpp pa (pb.getLsbD 0))).extractLsb' 1 33) := by
+    (hcnt : sv_eval% V "multdiv_count_q" = TritVec.ofBV c) :
+    sv_eval% V' "md_state_q" = TritVec.ofBV (bif c == 1#5 then 4#3 else 3#3) ∧
+    sv_eval% V' "multdiv_count_q" = TritVec.ofBV (c - 1#5) ∧
+    sv_eval% V' "op_a_shift_q" = TritVec.ofBV pa ∧
+    sv_eval% V' "op_b_shift_q" = TritVec.ofBV (pb >>> 1) ∧
+    sv_eval% V' "accum_window_q" = TritVec.ofBV ((add34 acc (bwpp pa (pb.getLsbD 0))).extractLsb' 1 33) := by
   unpack_edge hE
   unfold AluPath at hA
   obtain ⟨hme, hde, hen, hms, hop, hdit, hds, hrdy⟩ := hC
@@ -303,15 +303,15 @@ set_option maxHeartbeats 32000000 in
 theorem step_hold {V V' : Valuation} {k k' : BitVec 1}
     (hc : V.isConsistent IbexMultidivSlow) (hc' : V'.isConsistent IbexMultidivSlow)
     (ht : IbexMultidivSlow.Transition V V') (he : ValidHistoryExt V V')
-    (hclk : V.eval (sv_expr% "clk_i") = TritVec.ofBV k)
-    (hclk' : V'.eval (sv_expr% "clk_i") = TritVec.ofBV k')
+    (hclk : sv_eval% V "clk_i" = TritVec.ofBV k)
+    (hclk' : sv_eval% V' "clk_i" = TritVec.ofBV k')
     (hne : (k == 0#1 && k' == 1#1) = false)
-    (hrst' : V'.eval (sv_expr% "rst_ni") = TritVec.ofBV 1#1) :
-    V'.eval (sv_expr% "md_state_q") = V.eval (sv_expr% "md_state_q") ∧
-    V'.eval (sv_expr% "multdiv_count_q") = V.eval (sv_expr% "multdiv_count_q") ∧
-    V'.eval (sv_expr% "op_a_shift_q") = V.eval (sv_expr% "op_a_shift_q") ∧
-    V'.eval (sv_expr% "op_b_shift_q") = V.eval (sv_expr% "op_b_shift_q") ∧
-    V'.eval (sv_expr% "accum_window_q") = V.eval (sv_expr% "accum_window_q") := by
+    (hrst' : sv_eval% V' "rst_ni" = TritVec.ofBV 1#1) :
+    sv_eval% V' "md_state_q" = sv_eval% V "md_state_q" ∧
+    sv_eval% V' "multdiv_count_q" = sv_eval% V "multdiv_count_q" ∧
+    sv_eval% V' "op_a_shift_q" = sv_eval% V "op_a_shift_q" ∧
+    sv_eval% V' "op_b_shift_q" = sv_eval% V "op_b_shift_q" ∧
+    sv_eval% V' "accum_window_q" = sv_eval% V "accum_window_q" := by
   unfold ValidHistoryExt at he
   obtain ⟨hq0, hq1⟩ := he
   simp only [hclk, hclk', TritVec.bit0_ofBV] at hq0 hq1
@@ -327,8 +327,8 @@ theorem step_hold {V V' : Valuation} {k k' : BitVec 1}
 and in LAST for MULL/MULH. -/
 theorem valid_iff {V : Valuation} {s : BitVec 3} {op : BitVec 2}
     (hc : V.isConsistent IbexMultidivSlow) (hS : InState V s)
-    (hop : V.eval (sv_expr% "operator_i") = TritVec.ofBV op) :
-    V.eval (sv_expr% "valid_o") =
+    (hop : sv_eval% V "operator_i" = TritVec.ofBV op) :
+    sv_eval% V "valid_o" =
       TritVec.ofBV (bif (s == 6#3 || (s == 4#3 && op.ult 2#2)) then 1#1 else 0#1) := by
   unfold InState at hS
   bv_dual_rail
@@ -338,18 +338,18 @@ set_option maxHeartbeats 8000000 in
 /-- In IDLE and COMP the multiplier does not signal valid, whatever the operator. -/
 theorem valid_zero {V : Valuation} {s : BitVec 3}
     (hc : V.isConsistent IbexMultidivSlow) (hS : InState V s) (hs : s = 0#3 ∨ s = 3#3) :
-    V.eval (sv_expr% "valid_o") = TritVec.ofBV 0#1 := by
+    sv_eval% V "valid_o" = TritVec.ofBV 0#1 := by
   rcases hs with rfl | rfl <;> (unfold InState at hS; bv_dual_rail; bv_decide)
 
 set_option maxHeartbeats 32000000 in
 /-- LAST, MULL/MULH: `valid_o` is high and the result is the final sum. -/
 theorem last_output {V : Valuation} {hi : Bool} {pa pb acc : BitVec 33}
     (hc : V.isConsistent IbexMultidivSlow) (hA : AluPath V) (hS : InState V 4#3)
-    (hde : V.eval (sv_expr% "div_en_i") = TritVec.ofBV 0#1)
-    (hop : V.eval (sv_expr% "operator_i") = TritVec.ofBV (bif hi then 1#2 else 0#2))
+    (hde : sv_eval% V "div_en_i" = TritVec.ofBV 0#1)
+    (hop : sv_eval% V "operator_i" = TritVec.ofBV (bif hi then 1#2 else 0#2))
     (hR : MulRegs V pa pb acc) :
-    V.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1 ∧
-    V.eval (sv_expr% "multdiv_result_o") = TritVec.ofBV (lastResult hi pa pb acc) := by
+    sv_eval% V "valid_o" = TritVec.ofBV 1#1 ∧
+    sv_eval% V "multdiv_result_o" = TritVec.ofBV (lastResult hi pa pb acc) := by
   obtain ⟨hpa, hpb, hacc⟩ := hR
   unfold AluPath at hA
   unfold InState at hS
@@ -364,10 +364,10 @@ set_option maxHeartbeats 8000000 in
 /-- The clock and the control inputs read by the FSM are concrete bits. -/
 theorem ctrl_bits {V : Valuation} (hc : V.isConsistent IbexMultidivSlow)
     (hx : CtrlInputsDefined V) :
-    (V.eval (sv_expr% "clk_i")).bit0 ≠ Trit.x ∧
-    (V.eval (sv_expr% "data_ind_timing_i")).bit0 ≠ Trit.x ∧
-    (V.eval (sv_expr% "div_sel_i")).bit0 ≠ Trit.x ∧
-    (V.eval (sv_expr% "multdiv_ready_id_i")).bit0 ≠ Trit.x := by
+    (sv_eval% V "clk_i").bit0 ≠ Trit.x ∧
+    (sv_eval% V "data_ind_timing_i").bit0 ≠ Trit.x ∧
+    (sv_eval% V "div_sel_i").bit0 ≠ Trit.x ∧
+    (sv_eval% V "multdiv_ready_id_i").bit0 ≠ Trit.x := by
   unfold CtrlInputsDefined at hx
   refine ⟨?_, ?_, ?_, ?_⟩ <;> (bv_dual_rail; bv_decide)
 
@@ -376,7 +376,7 @@ datapath registers in the window of the arithmetic invariant. -/
 def PhaseRun (hi : Bool) (sm : BitVec 2) (a b : BitVec 32) (V : Valuation) : Prop :=
   InState V 0#3 ∨
   ∃ j pa pb acc, j ≤ 30 ∧ InState V 3#3 ∧
-    V.eval (sv_expr% "multdiv_count_q") = TritVec.ofBV (BitVec.ofNat 5 (31 - j)) ∧
+    sv_eval% V "multdiv_count_q" = TritVec.ofBV (BitVec.ofNat 5 (31 - j)) ∧
     MulRegs V pa pb acc ∧
     ((hi = false ∧ MullWin sm[0] sm[1] a b j pa pb acc) ∨ (hi = true ∧ MulhWin sm[0] sm[1] a b j pa pb acc))
 
@@ -402,7 +402,7 @@ theorem phase_step {hi : Bool} {sm : BitVec 2} {a b : BitVec 32} {V V' : Valuati
     (hc : V.isConsistent IbexMultidivSlow) (hc' : V'.isConsistent IbexMultidivSlow)
     (hx : CtrlInputsDefined V) (hx' : CtrlInputsDefined V')
     (ht : IbexMultidivSlow.Transition V V') (he : ValidHistoryExt V V')
-    (hrst' : V'.eval (sv_expr% "rst_ni") = TritVec.ofBV 1#1)
+    (hrst' : sv_eval% V' "rst_ni" = TritVec.ofBV 1#1)
     (hH : MulHeld hi sm a b V) (hA : AluPath V)
     (hP : PhaseRun hi sm a b V) :
     PhaseRun hi sm a b V' ∨ PhaseLast hi sm a b V' := by
@@ -421,7 +421,7 @@ theorem phase_step {hi : Bool} {sm : BitVec 2} {a b : BitVec 32} {V V' : Valuati
     have hO : MulOperands V sm a b := ⟨hsm, hoa, hob⟩
     rcases hP with hS | ⟨j, pa, pb, acc, hj, hS, hcnt, hR, hW⟩
     · cases hi
-      · have hop' : V.eval (sv_expr% "operator_i") = TritVec.ofBV 0#2 := by simpa using hop
+      · have hop' : sv_eval% V "operator_i" = TritVec.ofBV 0#2 := by simpa using hop
         have hC : MulCtrl V 0#2 1#1 0#1 dit ds rdy := ⟨hme, hde, by decide, hms, hop', hdit, hds, hrdy⟩
         obtain ⟨h1, h2, h3, h4, h5⟩ := step_idle_mull hE hS hC hO
         by_cases hcond : (dit == 0#1 && (ext33 sm[1] b >>> 1) == 0#33) = true
@@ -433,13 +433,13 @@ theorem phase_step {hi : Bool} {sm : BitVec 2} {a b : BitVec 32} {V V' : Valuati
         · rw [Bool.eq_false_iff.mpr hcond, Bool.cond_false] at h1
           left; right
           exact ⟨0, _, _, _, by omega, h1, h2, ⟨h3, h4, h5⟩, Or.inl ⟨rfl, MullWin.zero sm[0] sm[1] a b⟩⟩
-      · have hop' : V.eval (sv_expr% "operator_i") = TritVec.ofBV 1#2 := by simpa using hop
+      · have hop' : sv_eval% V "operator_i" = TritVec.ofBV 1#2 := by simpa using hop
         have hC : MulCtrl V 1#2 1#1 0#1 dit ds rdy := ⟨hme, hde, by decide, hms, hop', hdit, hds, hrdy⟩
         obtain ⟨h1, h2, h3, h4, h5⟩ := step_idle_mulh hE hS hC hO
         left; right
         exact ⟨0, _, _, _, by omega, h1, h2, ⟨h3, h4, h5⟩, Or.inr ⟨rfl, MulhWin.zero sm[0] sm[1] a b⟩⟩
     · cases hi
-      · have hop' : V.eval (sv_expr% "operator_i") = TritVec.ofBV 0#2 := by simpa using hop
+      · have hop' : sv_eval% V "operator_i" = TritVec.ofBV 0#2 := by simpa using hop
         have hC : MulCtrl V 0#2 1#1 0#1 dit ds rdy := ⟨hme, hde, by decide, hms, hop', hdit, hds, hrdy⟩
         have hw : MullWin sm[0] sm[1] a b j pa pb acc := by
           rcases hW with ⟨_, hw⟩ | ⟨h, _⟩
@@ -464,7 +464,7 @@ theorem phase_step {hi : Bool} {sm : BitVec 2} {a b : BitVec 32} {V V' : Valuati
           rw [count_sub_one hj] at h2
           left; right
           exact ⟨j + 1, _, _, _, by omega, h1, h2, ⟨h3, h4, h5⟩, Or.inl ⟨rfl, hw'⟩⟩
-      · have hop' : V.eval (sv_expr% "operator_i") = TritVec.ofBV 1#2 := by simpa using hop
+      · have hop' : sv_eval% V "operator_i" = TritVec.ofBV 1#2 := by simpa using hop
         have hC : MulCtrl V 1#2 1#1 0#1 dit ds rdy := ⟨hme, hde, by decide, hms, hop', hdit, hds, hrdy⟩
         have hw : MulhWin sm[0] sm[1] a b j pa pb acc := by
           rcases hW with ⟨h, _⟩ | ⟨_, hw⟩
@@ -502,7 +502,7 @@ theorem phase_step {hi : Bool} {sm : BitVec 2} {a b : BitVec 32} {V V' : Valuati
 structure Seg (L : List Valuation) : Prop where
   hc : ∀ V ∈ L, V.isConsistent IbexMultidivSlow
   hx : ∀ V ∈ L, CtrlInputsDefined V
-  hr : ∀ V ∈ L.tail, V.eval (sv_expr% "rst_ni") = TritVec.ofBV 1#1
+  hr : ∀ V ∈ L.tail, sv_eval% V "rst_ni" = TritVec.ofBV 1#1
   hz : ∀ p ∈ L.zip L.tail, IbexMultidivSlow.Transition p.1 p.2 ∧ ValidHistoryExt p.1 p.2
 
 theorem Seg.tail {x : Valuation} {M : List Valuation} (h : Seg (List.cons (α := Valuation) x M)) :
@@ -527,9 +527,9 @@ theorem ValidHistory.seg {Vs : List Valuation} (h : ValidHistory Vs) : Seg Vs :=
 /-- In LAST with MULL/MULH, `valid_o` is high; in IDLE/COMP it is low. -/
 theorem phase_valid {hi : Bool} {sm : BitVec 2} {a b : BitVec 32} {X : Valuation}
     (hc : X.isConsistent IbexMultidivSlow)
-    (hop : X.eval (sv_expr% "operator_i") = TritVec.ofBV (if hi then 1#2 else 0#2)) :
-    (PhaseRun hi sm a b X → X.eval (sv_expr% "valid_o") = TritVec.ofBV 0#1) ∧
-    (PhaseLast hi sm a b X → X.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1) := by
+    (hop : sv_eval% X "operator_i" = TritVec.ofBV (if hi then 1#2 else 0#2)) :
+    (PhaseRun hi sm a b X → sv_eval% X "valid_o" = TritVec.ofBV 0#1) ∧
+    (PhaseLast hi sm a b X → sv_eval% X "valid_o" = TritVec.ofBV 1#1) := by
   constructor
   · rintro (hS | ⟨j, pa, pb, acc, hj, hS, _⟩)
     · exact valid_zero hc hS (Or.inl rfl)
@@ -545,57 +545,57 @@ theorem run {hi : Bool} {sm : BitVec 2} {a b : BitVec 32} :
       Seg (List.cons (α := Valuation) X rest) →
       (PhaseRun hi sm a b X ∨ PhaseLast hi sm a b X) →
       ∀ V, (List.cons (α := Valuation) X rest).find?
-          (fun V => decide (V.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1)) = some V →
+          (fun V => decide (sv_eval% V "valid_o" = TritVec.ofBV 1#1)) = some V →
         (∀ W ∈ (List.cons (α := Valuation) X rest).takeWhile
-            (fun (W : Valuation) => !decide (W.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1)),
+            (fun (W : Valuation) => !decide (sv_eval% W "valid_o" = TritVec.ofBV 1#1)),
           MulHeld hi sm a b W ∧ AluPath W) →
         (MulHeld hi sm a b V ∧ AluPath V) →
-        V.eval (sv_expr% "multdiv_result_o") = TritVec.ofBV (mulSpec hi sm[0] sm[1] a b) := by
+        sv_eval% V "multdiv_result_o" = TritVec.ofBV (mulSpec hi sm[0] sm[1] a b) := by
   intro rest
   induction rest with
   | nil =>
     intro X hSeg hPh V hfind hheld hfinal
     have hcX := hSeg.hc X (by simp)
-    by_cases hv : X.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1
-    · rw [List.find?_cons_of_pos (p := fun V : Valuation => decide (V.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1)) (decide_eq_true hv)] at hfind
+    by_cases hv : sv_eval% X "valid_o" = TritVec.ofBV 1#1
+    · rw [List.find?_cons_of_pos (p := fun V : Valuation => decide (sv_eval% V "valid_o" = TritVec.ofBV 1#1)) (decide_eq_true hv)] at hfind
       cases hfind
       obtain ⟨⟨hop, _, _, hde, _⟩, hA⟩ := hfinal
       rcases hPh with hR | ⟨j, pa, pb, acc, hj, hS, hRg, hend⟩
       · exfalso
         have := (phase_valid (a := a) (b := b) hcX hop).1 hR
         rw [this] at hv; simp at hv
-      · have hop' : X.eval (sv_expr% "operator_i") = TritVec.ofBV (bif hi then 1#2 else 0#2) := by
+      · have hop' : sv_eval% X "operator_i" = TritVec.ofBV (bif hi then 1#2 else 0#2) := by
           rw [hop]; cases hi <;> rfl
         obtain ⟨_, hres⟩ := last_output hcX hA hS hde hop' hRg
         rw [hres, result_correct (by omega) hend]
     · exfalso
-      rw [List.find?_cons_of_neg (p := fun V : Valuation => decide (V.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1)) (by rw [decide_eq_true_eq]; exact hv)] at hfind
+      rw [List.find?_cons_of_neg (p := fun V : Valuation => decide (sv_eval% V "valid_o" = TritVec.ofBV 1#1)) (by rw [decide_eq_true_eq]; exact hv)] at hfind
       cases hfind
   | cons W rest' ih =>
     intro X hSeg hPh V hfind hheld hfinal
     have hcX := hSeg.hc X (by simp)
-    by_cases hv : X.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1
-    · rw [List.find?_cons_of_pos (p := fun V : Valuation => decide (V.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1)) (decide_eq_true hv)] at hfind
+    by_cases hv : sv_eval% X "valid_o" = TritVec.ofBV 1#1
+    · rw [List.find?_cons_of_pos (p := fun V : Valuation => decide (sv_eval% V "valid_o" = TritVec.ofBV 1#1)) (decide_eq_true hv)] at hfind
       cases hfind
       obtain ⟨⟨hop, _, _, hde, _⟩, hA⟩ := hfinal
       rcases hPh with hR | ⟨j, pa, pb, acc, hj, hS, hRg, hend⟩
       · exfalso
         have := (phase_valid (a := a) (b := b) hcX hop).1 hR
         rw [this] at hv; simp at hv
-      · have hop' : X.eval (sv_expr% "operator_i") = TritVec.ofBV (bif hi then 1#2 else 0#2) := by
+      · have hop' : sv_eval% X "operator_i" = TritVec.ofBV (bif hi then 1#2 else 0#2) := by
           rw [hop]; cases hi <;> rfl
         obtain ⟨_, hres⟩ := last_output hcX hA hS hde hop' hRg
         rw [hres, result_correct (by omega) hend]
     · have htw : List.takeWhile (α := Valuation)
-            (fun W => !decide (W.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1))
+            (fun W => !decide (sv_eval% W "valid_o" = TritVec.ofBV 1#1))
             (List.cons (α := Valuation) X (List.cons (α := Valuation) W rest')) =
           List.cons (α := Valuation) X (List.takeWhile (α := Valuation)
-            (fun W => !decide (W.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1))
+            (fun W => !decide (sv_eval% W "valid_o" = TritVec.ofBV 1#1))
             (List.cons (α := Valuation) W rest')) :=
         List.takeWhile_cons_of_pos (by rw [Bool.not_eq_true']; exact decide_eq_false hv)
       have hXheld := hheld X (by rw [htw]; exact List.Mem.head _)
       rcases hPh with hR | hL
-      · rw [List.find?_cons_of_neg (p := fun V : Valuation => decide (V.eval (sv_expr% "valid_o") = TritVec.ofBV 1#1)) (by rw [decide_eq_true_eq]; exact hv)] at hfind
+      · rw [List.find?_cons_of_neg (p := fun V : Valuation => decide (sv_eval% V "valid_o" = TritVec.ofBV 1#1)) (by rw [decide_eq_true_eq]; exact hv)] at hfind
         have hstep := phase_step hcX (hSeg.hc W (by simp)) (hSeg.hx X (by simp)) (hSeg.hx W (by simp))
           (hSeg.hz (X, W) (by simp)).1 (hSeg.hz (X, W) (by simp)).2
           (hSeg.hr W (by simp)) hXheld.1 hXheld.2 hR

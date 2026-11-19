@@ -13,16 +13,16 @@ the recorded slang arguments and checked against the recorded fingerprint. -/
 namespace adder
 
 example {V : Valuation} (h : V.isConsistent adder)
-    (ha : V.eval (sv_expr% "a") = TritVec.ofBV 3#8)
-    (hb : V.eval (sv_expr% "b") = TritVec.ofBV 4#8) :
-    V.eval (sv_expr% "sum") = TritVec.ofBV 7#8 := by
+    (ha : sv_eval% V "a" = TritVec.ofBV 3#8)
+    (hb : sv_eval% V "b" = TritVec.ofBV 4#8) :
+    sv_eval% V "sum" = TritVec.ofBV 7#8 := by
   bv_dual_rail
   bv_decide
 
 example {V : Valuation} (h : V.isConsistent adder)
-    (ha : V.eval (sv_expr% adder "a") = TritVec.ofBV 200#8)
-    (hb : V.eval (sv_expr% adder "b") = TritVec.ofBV 100#8) :
-    V.eval (sv_expr% adder "sum") = TritVec.ofBV 44#8 := by
+    (ha : sv_eval% V adder "a" = TritVec.ofBV 200#8)
+    (hb : sv_eval% V adder "b" = TritVec.ofBV 100#8) :
+    sv_eval% V adder "sum" = TritVec.ofBV 44#8 := by
   bv_dual_rail
   bv_decide
 
