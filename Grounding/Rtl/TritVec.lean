@@ -257,6 +257,11 @@ def tieDownX (c : TritVec width) : BitVec width :=
 def ofBV (v : BitVec width) : TritVec width :=
   ⟨Vector.ofFn (fun i => Trit.ofBool (v.getLsbD i.val))⟩
 
+attribute [coe] ofBV
+
+/-- A `BitVec` is a fully-defined `TritVec`, so `sv_eval% V "x" = 7#8` elaborates. -/
+instance : Coe (BitVec width) (TritVec width) := ⟨ofBV⟩
+
 /-! #### Multiplication -/
 
 /-- Any X in an operand makes the whole product X; otherwise this is `BitVec`
